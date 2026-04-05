@@ -1,0 +1,183 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  tarjetas       Tarjeta[]
+  cuotas         Cuota[]
+  meses          Mes[]
+  eventosFuturos EventoFuturo[]
+}
+
+// Un mes = snapshot de las finanzas de ese período
+model Mes {
+  id        String   @id @default(uuid())
+  userId    String
+  year      Int
+  month     Int // 1-12
+  label     String // "Abril 2026"
+  cerrado   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id])
+  ingresos    Ingreso[]
+  gastosFijos GastoFijo[]
+  gastosExtra GastoExtra[]
+  resumenes   TarjetaResumen[]
+
+  @@unique([userId, year, month])
+}
+
+model Ingreso {
+  id         String   @id @default(uuid())
+  mesId      String
+  label      String // "Sueldo EANA"
+  monto      Float
+  fechaCobro String? // "30/04" estimada
+  activo     Boolean  @default(true)
+  notas      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  mes Mes @relation(fields: [mesId], references: [id], onDelete: Cascade)
+
+  @@index([mesId])
+}
+
+model GastoFijo {
+  id        String   @id @default(uuid())
+  mesId     String
+  servicio  String // "Alquiler"
+  categoria String // "Vivienda" | "Auto" | "Salud" | "Digital" | "Comida"
+  monto     Float
+  paid      Boolean  @default(false)
+  notas     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mes Mes @relation(fields: [mesId], references: [id], onDelete: Cascade)
+
+  @@index([mesId])
+}
+
+model GastoExtra {
+  id        String   @id @default(uuid())
+  mesId     String
+  concepto  String
+  monto     Float
+  categoria String // cat id: "super" | "nafta" | "comida" | etc.
+  emoji     String
+  fecha     String // "01/04/2026"
+  tipo      String   @default("efectivo") // "efectivo" | "debito"
+  notas     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mes Mes @relation(fields: [mesId], references: [id], onDelete: Cascade)
+
+  @@index([mesId])
+}
+
+// Definición de tarjeta (no cambia por mes)
+model Tarjeta {
+  id     String  @id @default(uuid())
+  userId String
+  nombre String // "Naranja X"
+  color  String // "#F97316"
+  activa Boolean @default(true)
+
+  user      User             @relation(fields: [userId], references: [id])
+  resumenes TarjetaResumen[]
+  cuotas    Cuota[]
+
+  @@index([userId])
+}
+
+// Resumen mensual de una tarjeta
+model TarjetaResumen {
+  id               String   @id @default(uuid())
+  mesId            String
+  tarjetaId        String
+  montoPesos       Float    @default(0)
+  montoUsd         Float    @default(0)
+  fechaVencimiento String? // "10/04"
+  paid             Boolean  @default(false)
+  pdfUrl           String? // URL en Supabase Storage
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  mes     Mes            @relation(fields: [mesId], references: [id], onDelete: Cascade)
+  tarjeta Tarjeta        @relation(fields: [tarjetaId], references: [id])
+  gastos  TarjetaGasto[]
+
+  @@unique([mesId, tarjetaId])
+  @@index([tarjetaId])
+}
+
+// Gastos individuales extraídos del PDF de la tarjeta
+model TarjetaGasto {
+  id        String   @id @default(uuid())
+  resumenId String
+  concepto  String
+  monto     Float
+  montoUsd  Float?
+  categoria String
+  fecha     String?
+  esCuota   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  resumen TarjetaResumen @relation(fields: [resumenId], references: [id], onDelete: Cascade)
+
+  @@index([resumenId])
+}
+
+// Plan de cuotas: se define una vez, aparece automáticamente en cada mes futuro
+model Cuota {
+  id             String   @id @default(uuid())
+  userId         String
+  tarjetaId      String?
+  concepto       String // "Lavarropas Cetrogar"
+  categoria      String
+  montoCuota     Float
+  cuotaActual    Int // cuota en la que está HOY
+  cuotaTotal     Int
+  mesInicioYear  Int // año en que empezó (para calcular posición)
+  mesInicioMonth Int // mes en que empezó
+  activa         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id])
+  tarjeta Tarjeta? @relation(fields: [tarjetaId], references: [id])
+
+  @@index([userId])
+  @@index([tarjetaId])
+}
+
+// Eventos futuros: ingresos extra, gastos puntuales, notas anotadas en un mes futuro
+model EventoFuturo {
+  id        String   @id @default(uuid())
+  userId    String
+  tipo      String // "ingreso" | "gasto" | "nota"
+  label     String // "Bono anual" | "Viaje a BsAs"
+  monto     Float?
+  year      Int
+  month     Int
+  notas     String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
